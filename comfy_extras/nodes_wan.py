@@ -13,6 +13,16 @@ from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 import logging
 
+def set_helios_history_from_latent(positive, negative, latent):
+    if latent is None or len(latent.shape) != 5:
+        return positive, negative
+
+    indices = torch.arange(latent.shape[2], device=latent.device, dtype=latent.dtype).unsqueeze(0).expand(latent.shape[0], -1)
+    values = {"latents_history_short": latent, "indices_latents_history_short": indices}
+    positive = node_helpers.conditioning_set_values(positive, values)
+    negative = node_helpers.conditioning_set_values(negative, values)
+    return positive, negative
+
 class WanImageToVideo(io.ComfyNode):
     @classmethod
     def define_schema(cls):
@@ -51,6 +61,7 @@ class WanImageToVideo(io.ComfyNode):
 
             positive = node_helpers.conditioning_set_values(positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
             negative = node_helpers.conditioning_set_values(negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
+            positive, negative = set_helios_history_from_latent(positive, negative, concat_latent_image)
 
         if clip_vision_output is not None:
             positive = node_helpers.conditioning_set_values(positive, {"clip_vision_output": clip_vision_output})
@@ -97,6 +108,7 @@ class WanFunControlToVideo(io.ComfyNode):
             start_image = comfy.utils.common_upscale(start_image[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
             concat_latent_image = vae.encode(start_image[:, :, :, :3])
             concat_latent[:,16:,:concat_latent_image.shape[2]] = concat_latent_image[:,:,:concat_latent.shape[2]]
+            positive, negative = set_helios_history_from_latent(positive, negative, concat_latent_image)
 
         if control_video is not None:
             control_video = comfy.utils.common_upscale(control_video[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
@@ -156,6 +168,7 @@ class Wan22FunControlToVideo(io.ComfyNode):
             concat_latent_image = vae.encode(start_image[:, :, :, :3])
             concat_latent[:,latent_channels:,:concat_latent_image.shape[2]] = concat_latent_image[:,:,:concat_latent.shape[2]]
             mask[:, :, :start_image.shape[0] + 3] = 0.0
+            positive, negative = set_helios_history_from_latent(positive, negative, concat_latent_image)
 
         ref_latent = None
         if ref_image is not None:
@@ -229,6 +242,7 @@ class WanFirstLastFrameToVideo(io.ComfyNode):
         mask = mask.view(1, mask.shape[2] // 4, 4, mask.shape[3], mask.shape[4]).transpose(1, 2)
         positive = node_helpers.conditioning_set_values(positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
         negative = node_helpers.conditioning_set_values(negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
+        positive, negative = set_helios_history_from_latent(positive, negative, concat_latent_image)
 
         clip_vision_output = None
         if clip_vision_start_image is not None:
@@ -910,6 +924,7 @@ def wan_sound_to_video(positive, negative, vae, width, height, length, batch_siz
         ref_latent = vae.encode(ref_image[:, :, :, :3])
         positive = node_helpers.conditioning_set_values(positive, {"reference_latents": [ref_latent]}, append=True)
         negative = node_helpers.conditioning_set_values(negative, {"reference_latents": [ref_latent]}, append=True)
+        positive, negative = set_helios_history_from_latent(positive, negative, ref_latent)
 
     if ref_motion is not None:
         if ref_motion.shape[0] > 73:
@@ -1076,6 +1091,7 @@ class WanHuMoImageToVideo(io.ComfyNode):
             ref_latent = vae.encode(ref_image[:, :, :, :3])
             positive = node_helpers.conditioning_set_values(positive, {"reference_latents": [ref_latent]}, append=True)
             negative = node_helpers.conditioning_set_values(negative, {"reference_latents": [torch.zeros_like(ref_latent)]}, append=True)
+            positive, negative = set_helios_history_from_latent(positive, negative, ref_latent)
         else:
             zero_latent = torch.zeros([batch_size, 16, 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
             positive = node_helpers.conditioning_set_values(positive, {"reference_latents": [zero_latent]}, append=True)
@@ -1497,6 +1513,7 @@ class WanSCAILToVideo(io.ComfyNode):
         if ref_latent is not None:
             positive = node_helpers.conditioning_set_values(positive, {"reference_latents": [ref_latent]}, append=True)
             negative = node_helpers.conditioning_set_values(negative, {"reference_latents": [torch.zeros_like(ref_latent)]}, append=True)
+            positive, negative = set_helios_history_from_latent(positive, negative, ref_latent)
 
         if clip_vision_output is not None:
             positive = node_helpers.conditioning_set_values(positive, {"clip_vision_output": clip_vision_output})
